@@ -50,7 +50,7 @@ RIDDLES = [
     {"q": "I’m tall when I’m young, and I’m short when I’m old. What am I?", "a": ["candle", "pencil"]}
 ]
 
-# --- 3. UI VIEWS (BUTTONS) ---
+# --- 3. UI VIEWS (FIXED BUTTONS) ---
 
 class RiddleView(discord.ui.View):
     def __init__(self, user):
@@ -60,17 +60,19 @@ class RiddleView(discord.ui.View):
     @discord.ui.button(label="Next Riddle", style=discord.ButtonStyle.green, emoji="🧠")
     async def next_riddle(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.user:
-            return await interaction.response.send_message("This isn't your game!", ephemeral=True)
+            return await interaction.response.send_message("This isn't your game! Tell them to start their own.", ephemeral=True)
+        
         await interaction.response.defer()
         await interaction.message.edit(view=None) # Remove old buttons
-        await play_riddle(interaction.channel, self.user)
+        await play_riddle(interaction.channel, self.user) # Loop the game
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.red, emoji="🛑")
     async def stop_riddle(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.user:
             return await interaction.response.send_message("This isn't your game!", ephemeral=True)
-        await interaction.response.edit_message(view=None)
-        await interaction.channel.send(f"Game stopped. Good job, {self.user.display_name}!")
+        
+        await interaction.message.edit(view=None)
+        await interaction.response.send_message(f"Game stopped. Good job exercising that brain, {self.user.display_name}!")
 
 async def play_riddle(channel, user):
     riddle = random.choice(RIDDLES)
@@ -83,12 +85,11 @@ async def play_riddle(channel, user):
         msg = await bot.wait_for('message', check=check, timeout=30.0)
         if any(ans in msg.content.lower() for ans in riddle['a']):
             view = RiddleView(user)
-            await msg.reply("🎉 **Correct!** Want another one?", view=view)
+            await msg.reply("🎉 **Correct!** Big brain energy. Want another one?", view=view)
         else:
             await msg.reply(f"❌ **Wrong!** The answer was: **{riddle['a'][0].capitalize()}**.")
     except asyncio.TimeoutError:
-        await channel.send(f"⏰ Time's up, {user.mention}! The answer was **{riddle['a'][0].capitalize()}**.")
-
+        await channel.send(f"⏰ Time's up, {user.mention}! You took too long. The answer was **{riddle['a'][0].capitalize()}**.")
 
 # --- 4. COMMANDS ---
 
@@ -102,7 +103,7 @@ async def sync(ctx):
 async def setup_counting(interaction: discord.Interaction):
     counting_data.update({"channel_id": interaction.channel.id, "last_number": 0, "last_user": None})
     save_game()
-    await interaction.response.send_message("🔢 Counting Ready! Start with **1**.")
+    await interaction.response.send_message("🔢 Counting Ready! Don't mess up, or I'll roast you. Start with **1**.")
 
 @bot.tree.command(name="chat_enable", description="Enable AI chat here")
 async def chat_enable(interaction: discord.Interaction):
@@ -127,13 +128,13 @@ async def profile(interaction: discord.Interaction):
 
 @bot.tree.command(name="riddle", description="Solve a riddle for fun!")
 async def riddle_cmd(interaction: discord.Interaction):
-    await interaction.response.send_message("🎲 Starting the riddle game...")
+    await interaction.response.send_message("🎲 Let's see what you got...")
     await play_riddle(interaction.channel, interaction.user)
 
 @bot.tree.command(name="prank", description="Fake ban a user (Admin only)")
 @app_commands.checks.has_permissions(administrator=True)
 async def prank(interaction: discord.Interaction, member: discord.Member):
-    await interaction.response.send_message(f"⚠️ **SYSTEM ALERT** ⚠️\nInitiating permanent server ban for {member.mention}...\nReason: *Skill issue detected.*")
+    await interaction.response.send_message(f"⚠️ **SYSTEM ALERT** ⚠️\nInitiating permanent server ban for {member.mention}...\nReason: *Severe skill issue detected.*")
     await asyncio.sleep(4)
     await interaction.channel.send("...Just kidding. You're safe. For now. 🤡")
 
@@ -143,29 +144,48 @@ async def prank(interaction: discord.Interaction, member: discord.Member):
 async def on_message(message):
     if message.author.bot and message.author.id != bot.user.id: return
     
-    # A. COUNTING
+    # A. COUNTING (WITH DELETION AND TRASH TALK)
     if counting_data.get("channel_id") == message.channel.id and message.content.isdigit():
         num = int(message.content)
         expected = counting_data["last_number"] + 1
+        
         if num == expected and str(message.author.id) != counting_data["last_user"]:
+            # Correct!
             counting_data.update({"last_number": num, "last_user": str(message.author.id)})
             save_game()
             await message.add_reaction("✅")
+            
+            # Bot counts next
             if message.author.id != bot.user.id:
                 await asyncio.sleep(1)
                 await message.channel.send(str(num + 1))
                 counting_data.update({"last_number": num + 1, "last_user": str(bot.user.id)})
                 save_game()
             return
+            
         elif message.author.id != bot.user.id:
+            # Wrong! Delete message and roast them.
             counting_data.update({"last_number": 0, "last_user": None})
             save_game()
-            await message.add_reaction("❌")
+            
+            try:
+                await message.delete() # Try to delete the wrong number
+            except:
+                pass # If bot lacks permissions, just ignore the error
+            
+            # The Trash Talk Arsenal
+            roasts = [
+                f"Bro really just forgot how numbers work. 💀 {message.author.mention} ruined it. Restart at **1**.",
+                f"Math is hard, I get it... for a toddler. {message.author.mention} messed up. Back to **1**.",
+                f"Skill issue detected. {message.author.mention} can't even count. Back to **1**.",
+                f"My grandma counts better than that, and she's a toaster. {message.author.mention} ruined it. Restart at **1**."
+            ]
+            await message.channel.send(random.choice(roasts))
             return
 
     # B. CATS
     if message.channel.id in active_spawns and message.content.lower() == "cat":
-        rarity = active_spawns.pop(message.channel.id) # Cat is removed from world
+        rarity = active_spawns.pop(message.channel.id) 
         uid = str(message.author.id)
         if uid not in user_data: user_data[uid] = {"cats": {"Common": 0, "Rare": 0, "Epic": 0, "Legendary": 0}}
         user_data[uid]["cats"][rarity] += 1
@@ -173,13 +193,12 @@ async def on_message(message):
         await message.reply(f"🎯 **CATCH!** You got a **{rarity}** cat!")
         return
 
-    # C. AI CHAT (WITH REALISTIC TYPING DELAY)
+    # C. AI CHAT
     if message.channel.id in chat_channels and not message.content.startswith(('!', '/')):
         if message.author.bot: return
         
         async with message.channel.typing():
             try:
-                # Upgraded Relatable AI Prompt
                 system_prompt = "You are Flame, a highly relatable, witty, and fun Discord bot. Talk casually like a gamer or Gen-Z user. Use slight slang naturally. Keep replies to 1 or 2 punchy sentences."
                 
                 completion = await groq_client.chat.completions.create(
@@ -192,7 +211,6 @@ async def on_message(message):
                 )
                 response_text = completion.choices[0].message.content
                 if response_text:
-                    # SIMULATE TYPING: Wait based on how long the message is (max 3 seconds)
                     delay = min(len(response_text) * 0.04, 3.0)
                     await asyncio.sleep(delay)
                     await message.reply(response_text, mention_author=False)
@@ -206,7 +224,6 @@ async def on_message(message):
 @tasks.loop(minutes=2)
 async def auto_spawn_cat():
     for cid in spawn_channels:
-        # Strict Rule: Only spawn if the channel DOES NOT have an active cat
         if cid not in active_spawns and random.random() < 0.40:
             channel = bot.get_channel(cid)
             if channel:
