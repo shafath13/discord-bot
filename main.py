@@ -43,14 +43,14 @@ CAT_TYPES = {"Common": {"emoji": "🐱", "color": 0x95a5a6}, "Rare": {"emoji": "
              "Epic": {"emoji": "💎", "color": 0x9b59b6}, "Legendary": {"emoji": "👑", "color": 0xf1c40f}}
 
 RIDDLES = [
-    {"q": "I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?", "a": ["echo"]},
+    {"q": "I speak without a mouth and hear without ears. What am I?", "a": ["echo"]},
     {"q": "The more of this there is, the less you see. What is it?", "a": ["darkness", "dark"]},
-    {"q": "I have keys but no locks. I have a space but no room. You can enter, but can’t go outside. What am I?", "a": ["keyboard"]},
-    {"q": "What has to be broken before you can use it?", "a": ["egg", "an egg"]},
+    {"q": "I have keys but no locks. What am I?", "a": ["keyboard"]},
+    {"q": "What has to be broken before you can use it?", "a": ["egg"]},
     {"q": "I’m tall when I’m young, and I’m short when I’m old. What am I?", "a": ["candle", "pencil"]}
 ]
 
-# --- 3. UI VIEWS (FIXED BUTTONS) ---
+# --- 3. RIDDLE UI ---
 
 class RiddleView(discord.ui.View):
     def __init__(self, user):
@@ -59,39 +59,28 @@ class RiddleView(discord.ui.View):
 
     @discord.ui.button(label="Next Riddle", style=discord.ButtonStyle.green, emoji="🧠")
     async def next_riddle(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.user:
-            return await interaction.response.send_message("This isn't your game! Tell them to start their own.", ephemeral=True)
-        
-        await interaction.response.defer()
-        await interaction.message.edit(view=None) # Remove old buttons
-        await play_riddle(interaction.channel, self.user) # Loop the game
+        if interaction.user != self.user: return await interaction.response.send_message("Not your game!", ephemeral=True)
+        await interaction.message.edit(view=None)
+        await play_riddle(interaction.channel, self.user)
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.red, emoji="🛑")
     async def stop_riddle(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.user:
-            return await interaction.response.send_message("This isn't your game!", ephemeral=True)
-        
+        if interaction.user != self.user: return await interaction.response.send_message("Not your game!", ephemeral=True)
         await interaction.message.edit(view=None)
-        await interaction.response.send_message(f"Game stopped. Good job exercising that brain, {self.user.display_name}!")
+        await interaction.response.send_message("Game ended. Catch ya later.")
 
 async def play_riddle(channel, user):
     riddle = random.choice(RIDDLES)
-    await channel.send(f"🧠 **Riddle for {user.mention}:**\n> {riddle['q']}\n*(Type your answer in the chat!)*")
-    
-    def check(m):
-        return m.author == user and m.channel == channel
-
+    await channel.send(f"🧠 **Riddle for {user.mention}:**\n> {riddle['q']}")
     try:
-        msg = await bot.wait_for('message', check=check, timeout=30.0)
+        msg = await bot.wait_for('message', check=lambda m: m.author == user and m.channel == channel, timeout=30.0)
         if any(ans in msg.content.lower() for ans in riddle['a']):
-            view = RiddleView(user)
-            await msg.reply("🎉 **Correct!** Big brain energy. Want another one?", view=view)
+            await msg.reply("🎉 **Correct!**", view=RiddleView(user))
         else:
-            await msg.reply(f"❌ **Wrong!** The answer was: **{riddle['a'][0].capitalize()}**.")
-    except asyncio.TimeoutError:
-        await channel.send(f"⏰ Time's up, {user.mention}! You took too long. The answer was **{riddle['a'][0].capitalize()}**.")
+            await msg.reply(f"❌ **Wrong!** Answer: **{riddle['a'][0]}**.")
+    except: await channel.send(f"⏰ Timeout! Answer: **{riddle['a'][0]}**.")
 
-# --- 4. COMMANDS ---
+# --- 4. ALL COMMANDS ---
 
 @bot.command()
 async def sync(ctx):
@@ -99,25 +88,25 @@ async def sync(ctx):
         await bot.tree.sync()
         await ctx.send("✅ All Commands Synced!")
 
-@bot.tree.command(name="setup_counting", description="The bot counts back with you!")
+@bot.tree.command(name="setup_counting")
 async def setup_counting(interaction: discord.Interaction):
     counting_data.update({"channel_id": interaction.channel.id, "last_number": 0, "last_user": None})
     save_game()
-    await interaction.response.send_message("🔢 Counting Ready! Don't mess up, or I'll roast you. Start with **1**.")
+    await interaction.response.send_message("🔢 Counting setup! Start with **1**.")
 
-@bot.tree.command(name="chat_enable", description="Enable AI chat here")
+@bot.tree.command(name="chat_enable")
 async def chat_enable(interaction: discord.Interaction):
     chat_channels.add(interaction.channel.id)
     save_game()
-    await interaction.response.send_message("💬 AI Chat Enabled!")
+    await interaction.response.send_message("💬 AI Chat active!")
 
-@bot.tree.command(name="setup_cats", description="Enable cat spawns here")
+@bot.tree.command(name="setup_cats")
 async def setup_cats(interaction: discord.Interaction):
     spawn_channels.add(interaction.channel.id)
     save_game()
-    await interaction.response.send_message("🐾 Cat Spawns Enabled (1 at a time)!")
+    await interaction.response.send_message("🐾 Cat spawns active!")
 
-@bot.tree.command(name="profile", description="Check your cats")
+@bot.tree.command(name="profile")
 async def profile(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     stats = user_data.get(uid, {"cats": {"Common": 0, "Rare": 0, "Epic": 0, "Legendary": 0}})
@@ -126,101 +115,92 @@ async def profile(interaction: discord.Interaction):
         embed.add_field(name=f"{CAT_TYPES[r]['emoji']} {r}", value=count, inline=True)
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="riddle", description="Solve a riddle for fun!")
+@bot.tree.command(name="riddle")
 async def riddle_cmd(interaction: discord.Interaction):
-    await interaction.response.send_message("🎲 Let's see what you got...")
+    await interaction.response.send_message("🎲 Riddle game starting...")
     await play_riddle(interaction.channel, interaction.user)
 
-@bot.tree.command(name="prank", description="Fake ban a user (Admin only)")
+@bot.tree.command(name="prank")
 @app_commands.checks.has_permissions(administrator=True)
 async def prank(interaction: discord.Interaction, member: discord.Member):
-    await interaction.response.send_message(f"⚠️ **SYSTEM ALERT** ⚠️\nInitiating permanent server ban for {member.mention}...\nReason: *Severe skill issue detected.*")
+    await interaction.response.send_message(f"⚠️ **INITIATING BAN** for {member.mention}... reason: *skill issue.*")
     await asyncio.sleep(4)
-    await interaction.channel.send("...Just kidding. You're safe. For now. 🤡")
+    await interaction.channel.send("Pranked. You're safe. 🤡")
 
-# --- 5. THE CORE LOGIC ---
+@bot.tree.command(name="ghost_ping")
+async def ghost_ping(interaction: discord.Interaction, member: discord.Member):
+    await interaction.response.send_message("🤫", ephemeral=True)
+    msg = await interaction.channel.send(member.mention)
+    await msg.delete()
+
+# --- 5. THE BRAIN (FIXED MULTI-MESSAGE & TYPING) ---
 
 @bot.event
 async def on_message(message):
+    # 1. Ignore other bots
     if message.author.bot and message.author.id != bot.user.id: return
     
-    # A. COUNTING (WITH DELETION AND TRASH TALK)
+    # 2. Handle Counting
     if counting_data.get("channel_id") == message.channel.id and message.content.isdigit():
         num = int(message.content)
         expected = counting_data["last_number"] + 1
         
+        if message.author.id == bot.user.id:
+            counting_data.update({"last_number": num, "last_user": str(bot.user.id)})
+            save_game()
+            return # Stop processing this message
+
         if num == expected and str(message.author.id) != counting_data["last_user"]:
-            # Correct!
             counting_data.update({"last_number": num, "last_user": str(message.author.id)})
             save_game()
             await message.add_reaction("✅")
-            
-            # Bot counts next
-            if message.author.id != bot.user.id:
-                await asyncio.sleep(1)
-                await message.channel.send(str(num + 1))
-                counting_data.update({"last_number": num + 1, "last_user": str(bot.user.id)})
-                save_game()
-            return
-            
-        elif message.author.id != bot.user.id:
-            # Wrong! Delete message and roast them.
+            await asyncio.sleep(1)
+            await message.channel.send(str(num + 1))
+            return # Stop processing this message
+        else:
             counting_data.update({"last_number": 0, "last_user": None})
             save_game()
-            
-            try:
-                await message.delete() # Try to delete the wrong number
-            except:
-                pass # If bot lacks permissions, just ignore the error
-            
-            # The Trash Talk Arsenal
-            roasts = [
-                f"Bro really just forgot how numbers work. 💀 {message.author.mention} ruined it. Restart at **1**.",
-                f"Math is hard, I get it... for a toddler. {message.author.mention} messed up. Back to **1**.",
-                f"Skill issue detected. {message.author.mention} can't even count. Back to **1**.",
-                f"My grandma counts better than that, and she's a toaster. {message.author.mention} ruined it. Restart at **1**."
-            ]
+            try: await message.delete()
+            except: pass
+            roasts = [f"Actual skill issue {message.author.mention}. Back to 1.", 
+                      f"Imagine failing at math. {message.author.mention} ruined it. Restart from 1."]
             await message.channel.send(random.choice(roasts))
-            return
+            return # Stop processing this message
 
-    # B. CATS
+    # 3. Handle Cat Catching
     if message.channel.id in active_spawns and message.content.lower() == "cat":
-        rarity = active_spawns.pop(message.channel.id) 
+        rarity = active_spawns.pop(message.channel.id)
         uid = str(message.author.id)
         if uid not in user_data: user_data[uid] = {"cats": {"Common": 0, "Rare": 0, "Epic": 0, "Legendary": 0}}
         user_data[uid]["cats"][rarity] += 1
         save_game()
         await message.reply(f"🎯 **CATCH!** You got a **{rarity}** cat!")
-        return
+        return # Stop processing this message
 
-    # C. AI CHAT
+    # 4. Handle AI Chat (3 Second Typing Delay)
     if message.channel.id in chat_channels and not message.content.startswith(('!', '/')):
         if message.author.bot: return
         
         async with message.channel.typing():
+            # MANDATORY 3 SECOND DELAY
+            await asyncio.sleep(3)
             try:
-                system_prompt = "You are Flame, a highly relatable, witty, and fun Discord bot. Talk casually like a gamer or Gen-Z user. Use slight slang naturally. Keep replies to 1 or 2 punchy sentences."
-                
+                prompt = "You are Flame, a witty, chill Gen-Z bot. 1 short sentence max. Use slang."
                 completion = await groq_client.chat.completions.create(
                     model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": message.clean_content}
-                    ],
+                    messages=[{"role": "system", "content": prompt},
+                              {"role": "user", "content": message.clean_content}],
                     max_tokens=60
                 )
-                response_text = completion.choices[0].message.content
-                if response_text:
-                    delay = min(len(response_text) * 0.04, 3.0)
-                    await asyncio.sleep(delay)
-                    await message.reply(response_text, mention_author=False)
-            except Exception as e:
-                print(f"CHAT ERROR: {e}")
+                response = completion.choices[0].message.content
+                if response:
+                    await message.reply(response, mention_author=False)
+            except: pass
+        return # Stop processing this message
 
     await bot.process_commands(message)
 
-# --- 6. AUTOMATION ---
-
+# --- 6. AUTO SPAWNS ---
 @tasks.loop(minutes=2)
 async def auto_spawn_cat():
     for cid in spawn_channels:
@@ -232,15 +212,14 @@ async def auto_spawn_cat():
                 async with aiohttp.ClientSession() as s:
                     async with s.get('https://api.thecatapi.com/v1/images/search') as r:
                         url = (await r.json())[0]['url']
-                embed = discord.Embed(title="🐾 A cat appeared!", description="Type `cat` to catch it!", color=CAT_TYPES[rarity]['color'])
+                embed = discord.Embed(title="🐾 A cat appeared!", description="Type `cat`!", color=CAT_TYPES[rarity]['color'])
                 embed.set_image(url=url)
                 await channel.send(embed=embed)
 
 @bot.event
 async def on_ready():
     if not auto_spawn_cat.is_running(): auto_spawn_cat.start()
-    try: await bot.tree.sync()
-    except: pass
-    print("🔥 Flame AI is Live and Upgraded.")
+    await bot.tree.sync()
+    print("🔥 Flame AI Live.")
 
 bot.run(TOKEN)
